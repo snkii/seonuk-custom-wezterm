@@ -18,6 +18,7 @@ macOS·Windows·Linux 에서 같은 파일 하나로 쓰는 WezTerm 설정.
 - 글꼴 Sarasa Fixed K snkii 16pt (폴백: Sarasa Fixed K, JetBrainsMono Nerd Font Mono)
 - 색 GruvboxDarkHard, 노란 깜빡이는 막대 커서
 - 반투명 Gruvbox 그라데이션 배경 + 위쪽 모서리의 파랑·보라 빛. macOS 는 창 뒤를 흐리게(블러 40), Windows 는 Acrylic
+- 터미널 안 이미지: iTerm2·Sixel·Kitty 그래픽 프로토콜 모두 켜짐 (`wezterm imgcat 그림.png` 로 확인)
 - 크롬 테마 [snkii/seonuk-custom-chrome](https://github.com/snkii/seonuk-custom-chrome) 과 같은 팔레트
 
 **키 (macOS 는 Cmd, Windows·Linux 는 Ctrl+Shift)**

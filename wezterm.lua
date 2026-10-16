@@ -193,6 +193,9 @@ config.window_frame = {
 }
 config.inactive_pane_hsb = { saturation = 0.85, brightness = 0.7 } -- 분할했을 때 안 쓰는 칸은 살짝 어둡게
 
+-- 터미널 안 이미지: iTerm2·Sixel 은 기본 지원, Kitty 그래픽 프로토콜은 켜야 한다 (yazi·timg·일부 AI CLI 가 씀)
+config.enable_kitty_graphics = true
+
 -- 커서: 홈페이지 타자기처럼 노란 막대가 깜빡임
 config.default_cursor_style = 'BlinkingBar'
 config.cursor_blink_rate = 720
