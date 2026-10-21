@@ -8,6 +8,10 @@ local act = wezterm.action
 
 local config = wezterm.config_builder()
 
+-- ~/.config/wezterm/wezterm.lua 가 이 레포 파일을 가리키는 심볼릭 링크라서 원본 수정을 못 알아챈다.
+-- 실제 파일도 감시 목록에 넣어 저장하면 바로 다시 읽게 한다.
+wezterm.add_to_config_reload_watch_list(wezterm.home_dir .. '/github/seonuk-custom-wezterm/wezterm.lua')
+
 local is_mac = wezterm.target_triple:find 'darwin' ~= nil
 local is_windows = wezterm.target_triple:find 'windows' ~= nil
 
@@ -104,6 +108,143 @@ else
 end
 for _, k in ipairs(line_editing) do
   table.insert(config.keys, k)
+end
+
+-- macOS 복사·붙여넣기 보정 (Claude Code 같은 TUI 용)
+if is_mac then
+  -- Cmd+C: 화면이 다시 그려지면 WezTerm 은 그 줄의 선택을 지워 버리는데,
+  -- 기본 CopyTo 는 빈 선택이어도 클립보드를 빈 문자열로 덮어써서
+  -- 드래그할 때 자동 복사된 내용까지 날아간다. 선택이 있을 때만 복사한다.
+  local copy = wezterm.action_callback(function(window, pane)
+    if window:get_selection_text_for_pane(pane) ~= '' then
+      window:perform_action(act.CopyTo 'Clipboard', pane)
+    end
+  end)
+  -- Cmd+V: 클립보드에 이미지만 있으면 WezTerm 은 아무것도 안 보낸다.
+  -- 그때는 Ctrl+V 를 보내서 Claude Code 가 클립보드 이미지를 직접 읽게 한다.
+  -- ssh 너머(예: 서버 tmux 안의 Claude Code)에서는 원격 프로그램이 맥 클립보드를 못 읽는다.
+  -- 그래서 이미지를 PNG 로 저장해 같은 ssh 대상의 ~/.cache/wezterm-paste/ 로 올리고 그 경로를 붙여넣는다.
+  -- (Claude Code 는 붙여넣은 이미지 파일 경로를 이미지로 첨부한다)
+  local wezterm_bin = wezterm.executable_dir .. '/wezterm'
+  -- GUI 안에서 부르는 cli 는 WEZTERM_UNIX_SOCKET 이 GUI 자신의 소켓이라 칸 번호가 다르다.
+  -- mux 서버 소켓(unix_domains 'unix' 의 기본 위치)을 직접 지정해서 묻는다.
+  local function mux_cli(...)
+    return wezterm.run_child_process {
+      '/usr/bin/env', 'WEZTERM_UNIX_SOCKET=' .. wezterm.home_dir .. '/.local/share/wezterm/sock',
+      wezterm_bin, 'cli', ...
+    }
+  end
+
+  -- 지금 포커스된 칸에서 앞단에 돌고 있는 ssh 의 인자 (호스트까지만). ssh 가 아니면 nil.
+  -- GUI 가 mux 서버에 붙어 있어 pane:get_foreground_process_info() 를 못 쓰므로 tty 로 찾는다.
+  local function foreground_ssh_argv()
+    local ok, out = mux_cli('list-clients', '--format', 'json')
+    if not ok then
+      return nil
+    end
+    local pane_id, idle
+    for _, c in ipairs(wezterm.json_parse(out)) do
+      local t = c.idle_time.secs + c.idle_time.nanos / 1e9
+      if c.focused_pane_id and (not idle or t < idle) then
+        pane_id, idle = c.focused_pane_id, t
+      end
+    end
+    ok, out = mux_cli('list', '--format', 'json')
+    if not ok or not pane_id then
+      return nil
+    end
+    local tty
+    for _, p in ipairs(wezterm.json_parse(out)) do
+      if p.pane_id == pane_id then
+        tty = p.tty_name
+      end
+    end
+    if not tty then
+      return nil
+    end
+    ok, out = wezterm.run_child_process { '/bin/ps', '-t', (tty:gsub('^/dev/', '')), '-o', 'stat=,args=' }
+    if not ok then
+      return nil
+    end
+    for line in out:gmatch '[^\n]+' do
+      local stat, args = line:match '^%s*(%S+)%s+(.*)$'
+      if stat and stat:find '+' and args:match '^%S*ssh ' then
+        local argv = wezterm.split_by_newlines((args:gsub('%s+', '\n')))
+        -- 옵션을 건너뛰어 호스트 인자까지만 남긴다 (뒤의 원격 명령은 버림)
+        local takes_arg = 'BbcDEeFIiJLlmOopQRSWw'
+        local i = 2
+        while i <= #argv and argv[i]:sub(1, 1) == '-' do
+          if #argv[i] == 2 and takes_arg:find(argv[i]:sub(2, 2), 1, true) then
+            i = i + 2
+          else
+            i = i + 1
+          end
+        end
+        if i <= #argv then
+          return { table.unpack(argv, 1, i) }
+        end
+      end
+    end
+    return nil
+  end
+
+  local function paste_image_over_ssh(window, pane, ssh_argv)
+    local name = os.date '%Y%m%d-%H%M%S' .. '.png'
+    local local_file = (os.getenv 'TMPDIR' or '/tmp/') .. 'wezterm-paste-' .. name
+    local ok = wezterm.run_child_process {
+      '/usr/bin/osascript',
+      '-e', 'set f to open for access (POSIX file "' .. local_file .. '") with write permission',
+      '-e', 'write (the clipboard as «class PNGf») to f',
+      '-e', 'close access f',
+    }
+    if not ok then
+      window:toast_notification('WezTerm', '클립보드 이미지를 PNG 로 저장하지 못했습니다', nil, 4000)
+      return
+    end
+    local cmd = { '/bin/sh', '-c', 'f=$1; shift; "$@" < "$f"; s=$?; rm -f "$f"; exit $s', 'sh', local_file,
+      '/usr/bin/ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5' }
+    for i = 2, #ssh_argv do
+      table.insert(cmd, ssh_argv[i])
+    end
+    -- 공용 서버라 본인만 읽을 수 있는 홈 아래에 두고, 원격이 알려 준 절대 경로를 붙여넣는다
+    table.insert(cmd, 'umask 077; d="$HOME/.cache/wezterm-paste"; mkdir -p "$d" && cat > "$d/' .. name .. '" && echo "$d/' .. name .. '"')
+    local ok2, remote_file = wezterm.run_child_process(cmd)
+    remote_file = remote_file and remote_file:gsub('%s+$', '')
+    if ok2 and remote_file ~= '' then
+      pane:send_paste(remote_file)
+    else
+      window:toast_notification('WezTerm', '이미지를 서버로 올리지 못했습니다 (ssh 키 인증 필요)', nil, 4000)
+    end
+  end
+
+  local paste = wezterm.action_callback(function(window, pane)
+    local _, text = wezterm.run_child_process { '/usr/bin/pbpaste' }
+    if text ~= nil and text ~= '' then
+      window:perform_action(act.PasteFrom 'Clipboard', pane)
+      return
+    end
+    local _, info = wezterm.run_child_process { '/usr/bin/osascript', '-e', 'clipboard info' }
+    if info and (info:find 'PNGf' or info:find 'TIFF' or info:find 'JPEG') then
+      local found, ssh_argv = pcall(foreground_ssh_argv)
+      if not found then
+        ssh_argv = nil
+      end
+      if ssh_argv then
+        paste_image_over_ssh(window, pane, ssh_argv)
+      else
+        window:perform_action(act.SendKey { key = 'v', mods = 'CTRL' }, pane)
+      end
+    end
+  end)
+  -- 한글 입력 상태에서는 Cmd+C 가 'ㅊ' 로 들어와 'c' 와 안 맞으므로 키 위치(phys:)로도 묶는다
+  for _, k in ipairs {
+    { key = 'c', action = copy },
+    { key = 'phys:C', action = copy },
+    { key = 'v', action = paste },
+    { key = 'phys:V', action = paste },
+  } do
+    table.insert(config.keys, { key = k.key, mods = 'SUPER', action = k.action })
+  end
 end
 
 -- 외관: Gruvbox Glass (seon.uk · 크롬 테마 snkii/seonuk-custom-chrome 와 같은 색)

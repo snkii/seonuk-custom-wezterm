@@ -31,6 +31,8 @@ macOS·Windows·Linux 에서 같은 파일 하나로 쓰는 WezTerm 설정.
 | `Cmd+K` | 화면과 스크롤 기록 지우기 |
 | `Cmd+Backspace` / `Option+Backspace` | 줄 앞 전부 / 앞 단어 지우기 |
 | `Cmd+←→` / `Option+←→` | 줄 처음·끝 / 단어 이동 |
+| `Cmd+C` (macOS) | 선택이 있을 때만 복사. 화면이 다시 그려져 선택이 지워졌을 때 클립보드를 빈 값으로 덮어쓰지 않음 |
+| `Cmd+V` (macOS) | 텍스트는 그대로 붙여넣기, 클립보드에 이미지만 있으면 `Ctrl+V` 를 보내 Claude Code 가 이미지를 붙이게 함. 칸 앞단이 ssh 면 이미지를 그 서버의 `~/.cache/wezterm-paste/` 로 올리고 경로를 붙여넣음 (ssh 키 인증 필요) |
 
 **셸**: macOS `zsh -l`, Linux `fish -l`(없으면 기본 셸), Windows WSL.
 
