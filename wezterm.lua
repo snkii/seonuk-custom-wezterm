@@ -247,6 +247,17 @@ if is_mac then
   end
 end
 
+-- 링크 열기: Cmd+클릭 (Windows·Linux 는 Ctrl+클릭)
+-- tmux(mouse on)·Claude Code 처럼 마우스를 가져가는 프로그램 안에서는 그냥 클릭이 프로그램으로 가서
+-- 링크가 안 열린다. mouse_reporting = true 로 그런 상황에서도 이 조합만은 WezTerm 이 가로챈다.
+local LINK_MOD = is_mac and 'SUPER' or 'CTRL'
+config.mouse_bindings = {
+  { event = { Up = { streak = 1, button = 'Left' } }, mods = LINK_MOD, action = act.OpenLinkAtMouseCursor },
+  { event = { Up = { streak = 1, button = 'Left' } }, mods = LINK_MOD, mouse_reporting = true, action = act.OpenLinkAtMouseCursor },
+  -- 누르는 순간은 프로그램에 넘기지 않음 (tmux 가 선택·창 전환으로 오해하지 않게)
+  { event = { Down = { streak = 1, button = 'Left' } }, mods = LINK_MOD, mouse_reporting = true, action = act.Nop },
+}
+
 -- 외관: Gruvbox Glass (seon.uk · 크롬 테마 snkii/seonuk-custom-chrome 와 같은 색)
 local gruvbox = {
   bg0_h = '#1d2021',
